@@ -4,6 +4,7 @@ resolver = "2"
 members = [
     "vhost",
     "vhost-user-backend",
+    "vhost-user-frontend",
 ]
 
 [workspace.dependencies]
