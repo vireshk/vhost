@@ -15,8 +15,8 @@ libc = "0.2.118"
 log = "0.4.14"
 seccompiler = "0.2.0"
 thiserror = "1.0"
-vhost = { path = "../vhost/", version = "0.6", features = ["vhost-user-master", "vhost-kern", "vhost-user-slave"] }
+vhost = { path = "../vhost/", features = ["vhost-user-master", "vhost-kern", "vhost-user-slave"] }
 virtio-bindings = { version = ">=0.1.0", features = ["virtio-v5_0_0"] }
-virtio-queue = "0.7"
-vm-memory = { version = "0.10", features = ["backend-mmap", "backend-atomic", "backend-bitmap"] }
+virtio-queue = { git = "https://github.com/vireshk/vm-virtio" }
+vm-memory = { git = "https://github.com/vireshk/vm-memory", branch = "xen/mmap", features = ["backend-mmap", "backend-atomic", "backend-bitmap"] }
 vmm-sys-util = "0.11"
