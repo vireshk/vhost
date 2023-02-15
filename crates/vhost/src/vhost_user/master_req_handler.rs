@@ -27,7 +27,7 @@ use super::{Error, HandlerResult, Result};
 /// [VhostUserMasterReqHandler]: trait.VhostUserMasterReqHandler.html
 /// [MasterReqHandler]: struct.MasterReqHandler.html
 /// [Slave]: struct.Slave.html
-pub trait VhostUserMasterReqHandler {
+pub trait VhostUserMasterReqHandler: Send {
     /// Handle device configuration change notifications.
     fn handle_config_change(&self) -> HandlerResult<u64> {
         Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
@@ -64,7 +64,7 @@ pub trait VhostUserMasterReqHandler {
 /// A helper trait mirroring [VhostUserMasterReqHandler] but without interior mutability.
 ///
 /// [VhostUserMasterReqHandler]: trait.VhostUserMasterReqHandler.html
-pub trait VhostUserMasterReqHandlerMut {
+pub trait VhostUserMasterReqHandlerMut: Send {
     /// Handle device configuration change notifications.
     fn handle_config_change(&mut self) -> HandlerResult<u64> {
         Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
@@ -143,6 +143,8 @@ pub struct MasterReqHandler<S: VhostUserMasterReqHandler> {
     // whether the endpoint has encountered any failure
     error: Option<i32>,
 }
+
+unsafe impl<S: VhostUserMasterReqHandler> Send for MasterReqHandler<S> {}
 
 impl<S: VhostUserMasterReqHandler> MasterReqHandler<S> {
     /// Create a server to handle service requests from slaves on the slave communication channel.

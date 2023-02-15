@@ -31,10 +31,7 @@ pub struct State {
     pub vu_num_queues: usize,
 }
 
-struct SlaveReqHandler {}
-impl VhostUserMasterReqHandler for SlaveReqHandler {}
-
-pub struct Generic {
+pub struct Generic<S: VhostUserMasterReqHandler> {
     common: VirtioCommon,
     vu_common: VhostUserCommon,
     id: String,
@@ -45,23 +42,24 @@ pub struct Generic {
     device_features: u64,
     num_queues: u32,
     name: String,
+    backend: Option<Arc<S>>,
 }
 
-impl Generic {
+impl<S: VhostUserMasterReqHandler> Generic<S> {
     /// Create a new vhost-user-blk device
     pub fn new(
         vu_cfg: VhostUserConfig,
         seccomp_action: SeccompAction,
         exit_evt: EventFd,
         device_type: VirtioDeviceType,
-    ) -> Result<Generic> {
+    ) -> Result<Self> {
         let num_queues = vu_cfg.num_queues;
 
         let vu =
             VhostUserHandle::connect_vhost_user(false, &vu_cfg.socket, num_queues as u64, false)?;
         let device_features = vu.device_features()?;
 
-        Ok(Generic {
+        Ok(Self {
             common: VirtioCommon {
                 device_type: device_type as u32,
                 queue_sizes: vec![vu_cfg.queue_size; num_queues],
@@ -86,7 +84,12 @@ impl Generic {
             device_features,
             num_queues: 0,
             name: String::from(device_type),
+            backend: None,
         })
+    }
+
+    pub fn set_backend(&mut self, backend: Arc<S>) {
+        self.backend = Some(backend);
     }
 
     pub fn device_features(&self) -> u64 {
@@ -101,6 +104,7 @@ impl Generic {
         let mut vu = self.vu_common.vu.as_ref().unwrap().lock().unwrap();
         let avail_protocol_features = VhostUserProtocolFeatures::MQ
             | VhostUserProtocolFeatures::CONFIG
+            | VhostUserProtocolFeatures::SLAVE_REQ
             | VhostUserProtocolFeatures::REPLY_ACK;
 
         // Virtio spec says following for VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits():
@@ -165,7 +169,7 @@ impl Generic {
     }
 }
 
-impl Drop for Generic {
+impl<S: VhostUserMasterReqHandler> Drop for Generic<S> {
     fn drop(&mut self) {
         if let Some(kill_evt) = self.common.kill_evt.take() {
             if let Err(e) = kill_evt.write(1) {
@@ -175,7 +179,7 @@ impl Drop for Generic {
     }
 }
 
-impl VirtioDevice for Generic {
+impl<S: VhostUserMasterReqHandler + Sync + 'static> VirtioDevice for Generic<S> {
     fn device_type(&self) -> u32 {
         self.common.device_type as u32
     }
@@ -225,11 +229,11 @@ impl VirtioDevice for Generic {
         self.common.activate(&queues, &interrupt)?;
         self.guest_memory = Some(mem.clone());
 
-        let slave_req_handler: Option<MasterReqHandler<SlaveReqHandler>> = None;
-
         // Run a dedicated thread for handling potential reconnections with
         // the backend.
         let (kill_evt, pause_evt) = self.common.dup_eventfds();
+        let slave_req_handler =
+            Some(MasterReqHandler::new(self.backend.as_ref().unwrap().clone()).unwrap());
 
         let mut handler = self.vu_common.activate(
             mem,
