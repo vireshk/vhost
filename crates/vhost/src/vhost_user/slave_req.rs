@@ -138,6 +138,11 @@ impl VhostUserMasterReqHandler for Slave {
     fn fs_slave_unmap(&self, fs: &VhostUserFSSlaveMsg) -> HandlerResult<u64> {
         self.send_message(SlaveReq::FS_UNMAP, fs, None)
     }
+
+    /// Forward vhost-user-fs unmap file requests to the master.
+    fn iotlb_msg(&self, iotlb: &VhostUserIotlbSlaveMsg) -> HandlerResult<u64> {
+        self.send_message(SlaveReq::IOTLB_MSG, iotlb, None)
+    }
 }
 
 #[cfg(test)]

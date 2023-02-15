@@ -53,7 +53,11 @@ pub trait VhostUserMasterReqHandler {
         Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
     }
 
-    // fn handle_iotlb_msg(&mut self, iotlb: VhostUserIotlb);
+    /// Handle iotlb requests.
+    fn iotlb_msg(&self, _iotlb: &VhostUserIotlbSlaveMsg) -> HandlerResult<u64> {
+        Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
     // fn handle_vring_host_notifier(&mut self, area: VhostUserVringArea, fd: &dyn AsRawFd);
 }
 
@@ -86,7 +90,11 @@ pub trait VhostUserMasterReqHandlerMut {
         Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
     }
 
-    // fn handle_iotlb_msg(&mut self, iotlb: VhostUserIotlb);
+    /// Handle iotlb requests.
+    fn iotlb_msg(&mut self, _iotlb: &VhostUserIotlbSlaveMsg) -> HandlerResult<u64> {
+        Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
     // fn handle_vring_host_notifier(&mut self, area: VhostUserVringArea, fd: RawFd);
 }
 
@@ -109,6 +117,10 @@ impl<S: VhostUserMasterReqHandlerMut> VhostUserMasterReqHandler for Mutex<S> {
 
     fn fs_slave_io(&self, fs: &VhostUserFSSlaveMsg, fd: &dyn AsRawFd) -> HandlerResult<u64> {
         self.lock().unwrap().fs_slave_io(fs, fd)
+    }
+
+    fn iotlb_msg(&self, iotlb: &VhostUserIotlbSlaveMsg) -> HandlerResult<u64> {
+        self.lock().unwrap().iotlb_msg(iotlb)
     }
 }
 
@@ -247,6 +259,11 @@ impl<S: VhostUserMasterReqHandler> MasterReqHandler<S> {
                 self.backend
                     .fs_slave_io(&msg, &files.unwrap()[0])
                     .map_err(Error::ReqHandlerError)
+            }
+            Ok(SlaveReq::IOTLB_MSG) => {
+                let msg = self.extract_msg_body::<VhostUserIotlbSlaveMsg>(&hdr, size, &buf)?;
+                // check_attached_files() has validated files
+                self.backend.iotlb_msg(&msg).map_err(Error::ReqHandlerError)
             }
             _ => Err(Error::InvalidMessage),
         };
