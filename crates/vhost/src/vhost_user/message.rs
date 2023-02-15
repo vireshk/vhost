@@ -790,7 +790,7 @@ impl VhostUserMsgValidator for VhostUserLog {
 }
 
 /*
- * TODO: support dirty log, live migration and IOTLB operations.
+ * TODO: support dirty log and live migration.
 #[repr(packed)]
 pub struct VhostUserVringArea {
     pub index: u32,
@@ -804,16 +804,61 @@ pub struct VhostUserLog {
     pub size: u64,
     pub offset: u64,
 }
-
-#[repr(packed)]
-pub struct VhostUserIotlb {
-    pub iova: u64,
-    pub size: u64,
-    pub user_addr: u64,
-    pub permission: u8,
-    pub optype: u8,
-}
 */
+
+/// Permission types for Iotlb message.
+#[repr(u8)]
+#[derive(Copy, Clone, Default)]
+pub enum VhostUserIotlbSlaveMsgPerm {
+    #[default]
+    /// No access.
+    NO_ACCESS = 0,
+    /// Read access.
+    READ_ACCESS = 1,
+    /// Write access.
+    WRITE_ACCESS = 2,
+    /// Read / Write access.
+    RW_ACCESS = 3,
+}
+
+/// Operation types for Iotlb message.
+#[repr(u8)]
+#[derive(Copy, Clone, Default)]
+pub enum VhostUserIotlbSlaveMsgOpType {
+    #[default]
+    /// Iotlb Miss.
+    MISS = 0,
+    /// Iotlb update.
+    UPDATE = 1,
+    /// Iotlb invalidate.
+    INVALIDATE = 2,
+    /// Iotlb access fail.
+    ACCESS_FAIL = 3,
+}
+
+/// Slave request message for IOTLB.
+#[repr(packed)]
+#[derive(Copy, Clone, Default)]
+pub struct VhostUserIotlbSlaveMsg {
+    /// I/O virtual address programmed by the guest.
+    pub iova: u64,
+    /// Memory size.
+    pub size: u64,
+    /// User address.
+    pub user_addr: u64,
+    /// Permission flags.
+    pub permission: VhostUserIotlbSlaveMsgPerm,
+    /// Operation type.
+    pub optype: VhostUserIotlbSlaveMsgOpType,
+}
+
+unsafe impl ByteValued for VhostUserIotlbSlaveMsg {}
+
+impl VhostUserMsgValidator for VhostUserIotlbSlaveMsg {
+    fn is_valid(&self) -> bool {
+        true
+    }
+}
 
 // Bit mask for flags in virtio-fs slave messages
 bitflags! {
