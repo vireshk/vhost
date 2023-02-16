@@ -533,16 +533,19 @@ where
         region: &VhostUserSingleMemoryRegion,
         file: File,
     ) -> VhostUserResult<()> {
+        dbg!(region.mmap_offset, region.memory_size);
         let mmap_region = MmapRegion::from_file(
             FileOffset::new(file, region.mmap_offset),
             region.memory_size as usize,
         )
-        .map_err(|e| VhostUserError::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e)))?;
+        .map_err(|e| VhostUserError::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e))).unwrap();
+        dbg!();
         let guest_region = Arc::new(
             GuestRegionMmap::new(mmap_region, GuestAddress(region.guest_phys_addr)).map_err(
                 |e| VhostUserError::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e)),
             )?,
         );
+        dbg!();
 
         let mem = self
             .atomic_mem
@@ -552,14 +555,17 @@ where
                 VhostUserError::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e))
             })?;
 
+        dbg!();
         self.atomic_mem.lock().unwrap().replace(mem);
 
+        dbg!();
         self.backend
             .update_memory(self.atomic_mem.clone())
             .map_err(|e| {
                 VhostUserError::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e))
             })?;
 
+        dbg!();
         self.mappings.push(AddrMapping {
             vmm_addr: region.user_addr,
             size: region.memory_size,

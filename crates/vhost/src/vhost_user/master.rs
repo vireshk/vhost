@@ -494,6 +494,7 @@ impl VhostUserMaster for Master {
     }
 
     fn add_mem_region(&mut self, region: &VhostUserMemoryRegionInfo) -> Result<()> {
+        dbg!();
         let mut node = self.node();
         node.check_proto_feature(VhostUserProtocolFeatures::CONFIGURE_MEM_SLOTS)?;
         if region.memory_size == 0 || region.mmap_handle < 0 {
@@ -507,8 +508,12 @@ impl VhostUserMaster for Master {
             region.mmap_offset,
         );
         let fds = [region.mmap_handle];
+        dbg!();
         let hdr = node.send_request_with_body(MasterReq::ADD_MEM_REG, &body, Some(&fds))?;
-        node.wait_for_ack(&hdr).map_err(|e| e.into())
+        dbg!();
+        let l = node.wait_for_ack(&hdr).map_err(|e| e.into());
+        dbg!();
+        l
     }
 
     fn remove_mem_region(&mut self, region: &VhostUserMemoryRegionInfo) -> Result<()> {

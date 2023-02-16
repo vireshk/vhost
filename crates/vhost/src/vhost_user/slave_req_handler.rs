@@ -493,6 +493,7 @@ impl<S: VhostUserSlaveReqHandler> SlaveReqHandler<S> {
                 self.send_reply_message(&hdr, &msg)?;
             }
             Ok(MasterReq::ADD_MEM_REG) => {
+        dbg!();
                 self.check_proto_feature(VhostUserProtocolFeatures::CONFIGURE_MEM_SLOTS)?;
                 let mut files = files.ok_or(Error::InvalidParam)?;
                 if files.len() != 1 {
@@ -500,8 +501,11 @@ impl<S: VhostUserSlaveReqHandler> SlaveReqHandler<S> {
                 }
                 let msg =
                     self.extract_request_body::<VhostUserSingleMemoryRegion>(&hdr, size, &buf)?;
+        dbg!();
                 let res = self.backend.add_mem_region(&msg, files.swap_remove(0));
+        dbg!();
                 self.send_ack_message(&hdr, res)?;
+        dbg!();
             }
             Ok(MasterReq::REM_MEM_REG) => {
                 self.check_proto_feature(VhostUserProtocolFeatures::CONFIGURE_MEM_SLOTS)?;
