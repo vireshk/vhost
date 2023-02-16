@@ -105,6 +105,7 @@ impl<S: VhostUserMasterReqHandler> Generic<S> {
         let avail_protocol_features = VhostUserProtocolFeatures::MQ
             | VhostUserProtocolFeatures::CONFIG
             | VhostUserProtocolFeatures::SLAVE_REQ
+            | VhostUserProtocolFeatures::CONFIGURE_MEM_SLOTS
             | VhostUserProtocolFeatures::REPLY_ACK;
 
         // Virtio spec says following for VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits():
