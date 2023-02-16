@@ -178,8 +178,11 @@ impl<S: VhostUserMasterReqHandler> VhostUserEpollHandler<S> {
             epoll::Events::EPOLLHUP,
         )?;
 
+            dbg!();
         if let Some(slave_req_handler) = &self.slave_req_handler {
+            dbg!();
             helper.add_event(slave_req_handler.as_raw_fd(), SLAVE_REQ_EVENT)?;
+            dbg!();
         }
 
         helper.run(paused, paused_sync, self)?;
@@ -245,15 +248,19 @@ impl<S: VhostUserMasterReqHandler> VhostUserEpollHandler<S> {
 impl<S: VhostUserMasterReqHandler> EpollHelperHandler for VhostUserEpollHandler<S> {
     fn handle_event(&mut self, helper: &mut EpollHelper, event: &epoll::Event) -> bool {
         let ev_type = event.data as u16;
+            dbg!();
         match ev_type {
             HUP_CONNECTION_EVENT => {
+            dbg!();
                 if let Err(e) = self.reconnect(helper) {
                     error!("failed to reconnect vhost-user backend: {:?}", e);
                     return true;
                 }
             }
             SLAVE_REQ_EVENT => {
+            dbg!();
                 if let Some(slave_req_handler) = self.slave_req_handler.as_mut() {
+            dbg!();
                     if let Err(e) = slave_req_handler.handle_request() {
                         error!("Failed to handle request from vhost-user backend: {:?}", e);
                         return true;
