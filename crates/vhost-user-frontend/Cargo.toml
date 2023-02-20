@@ -13,7 +13,7 @@ edition = "2018"
 epoll = "4.3.1"
 libc = "0.2.118"
 log = "0.4.14"
-seccompiler = "0.2.0"
+seccompiler = "0.3.0"
 thiserror = "1.0"
 vhost = { path = "../vhost/", features = ["vhost-user-master", "vhost-kern", "vhost-user-slave"] }
 virtio-bindings = { version = ">=0.1.0", features = ["virtio-v5_0_0"] }
