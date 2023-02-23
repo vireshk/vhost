@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::thread;
 
 use vhost::vhost_user::message::{
-    VhostUserConfigFlags, VhostUserMemoryRegion, VhostUserProtocolFeatures,
+    VhostUserConfigFlags, VhostUserCustomMmap, VhostUserMemoryRegion, VhostUserProtocolFeatures,
     VhostUserSingleMemoryRegion, VhostUserVirtioFeatures, VhostUserVringAddrFlags,
     VhostUserVringState,
 };
@@ -88,6 +88,7 @@ pub struct VhostUserHandler<S, V, B: Bitmap + 'static> {
     atomic_mem: GM<B>,
     vrings: Vec<V>,
     worker_threads: Vec<thread::JoinHandle<VringEpollResult<()>>>,
+    custom_mmap: Option<VhostUserCustomMmap>,
 }
 
 // Ensure VhostUserHandler: Clone + Send + Sync + 'static.
@@ -147,6 +148,7 @@ where
             atomic_mem,
             vrings,
             worker_threads,
+            custom_mmap: None,
         })
     }
 }
@@ -586,6 +588,11 @@ where
         self.mappings
             .retain(|mapping| mapping.gpa_base != region.guest_phys_addr);
 
+        Ok(())
+    }
+
+    fn custom_mmap(&mut self, mmap: VhostUserCustomMmap) -> VhostUserResult<()> {
+        self.custom_mmap = Some(mmap);
         Ok(())
     }
 }

@@ -291,4 +291,8 @@ impl VhostUserSlaveReqHandlerMut for DummySlaveReqHandler {
     fn remove_mem_region(&mut self, _region: &VhostUserSingleMemoryRegion) -> Result<()> {
         Ok(())
     }
+
+    fn custom_mmap(&mut self, _mmap: VhostUserCustomMmap) -> Result<()> {
+        Ok(())
+    }
 }

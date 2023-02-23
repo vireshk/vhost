@@ -72,6 +72,9 @@ pub trait VhostUserMaster: VhostBackend {
 
     /// Remove a guest memory mapping from vhost.
     fn remove_mem_region(&mut self, region: &VhostUserMemoryRegionInfo) -> Result<()>;
+
+    /// Notify backend of custom mmap configurations.
+    fn custom_mmap(&mut self, flags: u64, value: u64) -> Result<()>;
 }
 
 fn error_code<T>(err: VhostUserError) -> Result<T> {
@@ -525,6 +528,20 @@ impl VhostUserMaster for Master {
             region.mmap_offset,
         );
         let hdr = node.send_request_with_body(MasterReq::REM_MEM_REG, &body, None)?;
+        node.wait_for_ack(&hdr).map_err(|e| e.into())
+    }
+
+    /// Notify backend of custom mmap configurations.
+    fn custom_mmap(&mut self, flags: u64, value: u64) -> Result<()> {
+        let mut node = self.node();
+        node.check_proto_feature(VhostUserProtocolFeatures::CUSTOM_MMAP)?;
+
+        let body = VhostUserCustomMmap::new(flags, value);
+        if !body.is_valid() {
+            return error_code(VhostUserError::InvalidParam);
+        }
+
+        let hdr = node.send_request_with_body(MasterReq::CUSTOM_MMAP, &body, None)?;
         node.wait_for_ack(&hdr).map_err(|e| e.into())
     }
 }

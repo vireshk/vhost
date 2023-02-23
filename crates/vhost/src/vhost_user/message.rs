@@ -140,8 +140,10 @@ pub enum MasterReq {
     /// Query the backend for its device status as defined in the VIRTIO
     /// specification.
     GET_STATUS = 40,
+    /// Notify the backend of custom mmap configurations.
+    CUSTOM_MMAP = 41,
     /// Upper bound of valid commands.
-    MAX_CMD = 41,
+    MAX_CMD = 42,
 }
 
 impl From<MasterReq> for u32 {
@@ -420,6 +422,8 @@ bitflags! {
         const CONFIGURE_MEM_SLOTS = 0x0000_8000;
         /// Support reporting status.
         const STATUS = 0x0001_0000;
+        /// Support custom mmap.
+        const CUSTOM_MMAP = 0x0002_0000;
     }
 }
 
@@ -785,6 +789,50 @@ impl VhostUserMsgValidator for VhostUserLog {
         if self.mmap_size == 0 || self.mmap_offset.checked_add(self.mmap_size).is_none() {
             return false;
         }
+        true
+    }
+}
+
+// Bit mask for the vhost-user custom mmap message.
+bitflags! {
+    /// Flags for the custom mmap message.
+    pub struct VhostUserCustomMmapFlags: u64 {
+        /// Xen foreign memory (accessed via /dev/privcmd).
+        const XEN_FOREIGN_MEM = 0x1;
+        /// Xen grant memory (accessed via /dev/gntdev).
+        const XEN_GRANT_MEM = 0x2;
+    }
+}
+
+/// Message to read/write device configuration space.
+#[repr(packed)]
+#[derive(Copy, Clone, Default)]
+pub struct VhostUserCustomMmap {
+    /// Flags for the custom mmap operation.
+    pub flags: u64,
+    /// Value for the custom mmap operation, interpreted based on flags.
+    pub value: u64,
+}
+
+impl VhostUserCustomMmap {
+    /// Create a new instance.
+    pub fn new(flags: u64, value: u64) -> Self {
+        VhostUserCustomMmap {
+            flags,
+            value,
+        }
+    }
+}
+
+unsafe impl ByteValued for VhostUserCustomMmap {}
+
+impl VhostUserMsgValidator for VhostUserCustomMmap {
+    #[allow(clippy::if_same_then_else)]
+    fn is_valid(&self) -> bool {
+        if (self.flags & !VhostUserCustomMmapFlags::all().bits()) != 0 {
+            return false;
+        }
+
         true
     }
 }
