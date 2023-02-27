@@ -8,6 +8,9 @@ repository = "https://github.com/rust-vmm/vhost"
 edition = "2018"
 license = "Apache-2.0"
 
+[features]
+xen = ["vm-memory/xen", "vhost/xen"]
+
 [dependencies]
 libc = "0.2.39"
 log = "0.4.17"

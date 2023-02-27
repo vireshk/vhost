@@ -10,10 +10,15 @@
 #![allow(clippy::upper_case_acronyms)]
 
 use std::fmt::Debug;
+use std::fs::File;
+use std::io;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-use vm_memory::ByteValued;
+use vm_memory::{mmap::NewBitmap, ByteValued, Error as MmapError, FileOffset, MmapRegion};
+
+#[cfg(feature = "xen")]
+use vm_memory::{GuestAddress, MmapRange, MmapXenFlags};
 
 use super::{Error, Result};
 use crate::VringConfigData;
@@ -421,6 +426,15 @@ bitflags! {
         const CONFIGURE_MEM_SLOTS = 0x0000_8000;
         /// Support reporting status.
         const STATUS = 0x0001_0000;
+        /// Support Xen mmap.
+        const XEN_MMAP = 0x0002_0000;
+    }
+}
+
+impl VhostUserProtocolFeatures {
+    /// XEN_MMAP is set.
+    pub fn is_xen_mmap(features: u64) -> bool {
+        features & Self::XEN_MMAP.bits() != 0
     }
 }
 
@@ -489,8 +503,31 @@ pub struct VhostUserMemoryRegion {
     pub user_addr: u64,
     /// Offset where region starts in the mapped memory.
     pub mmap_offset: u64,
+
+    #[cfg(feature = "xen")]
+    /// Xen specific flags.
+    pub xen_mmap_flags: u32,
+
+    #[cfg(feature = "xen")]
+    /// Xen specific data.
+    pub xen_mmap_data: u32,
 }
 
+impl VhostUserMemoryRegion {
+    fn validate(&self) -> bool {
+        if self.memory_size == 0
+            || self.guest_phys_addr.checked_add(self.memory_size).is_none()
+            || self.user_addr.checked_add(self.memory_size).is_none()
+            || self.mmap_offset.checked_add(self.memory_size).is_none()
+        {
+            return false;
+        }
+
+        true
+    }
+}
+
+#[cfg(not(feature = "xen"))]
 impl VhostUserMemoryRegion {
     /// Create a new instance.
     pub fn new(guest_phys_addr: u64, memory_size: u64, user_addr: u64, mmap_offset: u64) -> Self {
@@ -501,18 +538,74 @@ impl VhostUserMemoryRegion {
             mmap_offset,
         }
     }
+
+    /// Creates mmap region from Self.
+    pub fn as_mmap_region<B: NewBitmap>(&self, file: File) -> Result<MmapRegion<B>> {
+        MmapRegion::<B>::from_file(
+            FileOffset::new(file, self.mmap_offset),
+            self.memory_size as usize,
+        )
+        .map_err(MmapError::MmapRegion)
+        .map_err(|e| Error::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e)))
+    }
+
+    fn is_valid(&self) -> bool {
+        self.validate()
+    }
+}
+
+#[cfg(feature = "xen")]
+impl VhostUserMemoryRegion {
+    /// Create a new instance.
+    pub fn with_xen(
+        guest_phys_addr: u64,
+        memory_size: u64,
+        user_addr: u64,
+        mmap_offset: u64,
+        xen_mmap_flags: u32,
+        xen_mmap_data: u32,
+    ) -> Self {
+        VhostUserMemoryRegion {
+            guest_phys_addr,
+            memory_size,
+            user_addr,
+            mmap_offset,
+            xen_mmap_flags,
+            xen_mmap_data,
+        }
+    }
+
+    /// Creates mmap region from Self.
+    pub fn as_mmap_region<B: NewBitmap>(&self, file: File) -> Result<MmapRegion<B>> {
+        let range = MmapRange::new(
+            self.memory_size as usize,
+            Some(FileOffset::new(file, self.mmap_offset)),
+            GuestAddress(self.guest_phys_addr),
+            self.xen_mmap_flags,
+            self.xen_mmap_data,
+        );
+
+        MmapRegion::<B>::from_range(range)
+            .map_err(MmapError::MmapRegion)
+            .map_err(|e| Error::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e)))
+    }
+
+    fn is_valid(&self) -> bool {
+        if !self.validate() {
+            false
+        } else {
+            // Only of one of FOREIGN or GRANT should be set.
+            match MmapXenFlags::from_bits(self.xen_mmap_flags) {
+                Some(flags) => flags.is_valid(),
+                None => false,
+            }
+        }
+    }
 }
 
 impl VhostUserMsgValidator for VhostUserMemoryRegion {
     fn is_valid(&self) -> bool {
-        if self.memory_size == 0
-            || self.guest_phys_addr.checked_add(self.memory_size).is_none()
-            || self.user_addr.checked_add(self.memory_size).is_none()
-            || self.mmap_offset.checked_add(self.memory_size).is_none()
-        {
-            return false;
-        }
-        true
+        self.is_valid()
     }
 }
 
@@ -538,6 +631,7 @@ impl Deref for VhostUserSingleMemoryRegion {
     }
 }
 
+#[cfg(not(feature = "xen"))]
 impl VhostUserSingleMemoryRegion {
     /// Create a new instance.
     pub fn new(guest_phys_addr: u64, memory_size: u64, user_addr: u64, mmap_offset: u64) -> Self {
@@ -548,6 +642,31 @@ impl VhostUserSingleMemoryRegion {
                 memory_size,
                 user_addr,
                 mmap_offset,
+            ),
+        }
+    }
+}
+
+#[cfg(feature = "xen")]
+impl VhostUserSingleMemoryRegion {
+    /// Create a new instance.
+    pub fn new(
+        guest_phys_addr: u64,
+        memory_size: u64,
+        user_addr: u64,
+        mmap_offset: u64,
+        xen_mmap_flags: u32,
+        xen_mmap_data: u32,
+    ) -> Self {
+        VhostUserSingleMemoryRegion {
+            padding: 0,
+            region: VhostUserMemoryRegion::with_xen(
+                guest_phys_addr,
+                memory_size,
+                user_addr,
+                mmap_offset,
+                xen_mmap_flags,
+                xen_mmap_data,
             ),
         }
     }
@@ -991,6 +1110,20 @@ mod tests {
     use super::*;
     use std::mem;
 
+    #[cfg(feature = "xen")]
+    impl VhostUserMemoryRegion {
+        fn new(guest_phys_addr: u64, memory_size: u64, user_addr: u64, mmap_offset: u64) -> Self {
+            Self::with_xen(
+                guest_phys_addr,
+                memory_size,
+                user_addr,
+                mmap_offset,
+                MmapXenFlags::FOREIGN.bits(),
+                0,
+            )
+        }
+    }
+
     #[test]
     fn check_master_request_code() {
         assert!(!MasterReq::is_valid(MasterReq::NOOP as _));
@@ -1096,12 +1229,7 @@ mod tests {
 
     #[test]
     fn check_user_memory_region() {
-        let mut msg = VhostUserMemoryRegion {
-            guest_phys_addr: 0,
-            memory_size: 0x1000,
-            user_addr: 0,
-            mmap_offset: 0,
-        };
+        let mut msg = VhostUserMemoryRegion::new(0, 0x1000, 0, 0);
         assert!(msg.is_valid());
         msg.guest_phys_addr = 0xFFFFFFFFFFFFEFFF;
         assert!(msg.is_valid());

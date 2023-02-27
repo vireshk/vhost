@@ -2,6 +2,8 @@
 ## [Unreleased]
 
 ### Added
+- [[#169]](https://github.com/rust-vmm/vhost/pull/160) vhost: Add xen memory
+  mapping support
 
 ### Changed
 

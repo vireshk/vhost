@@ -23,6 +23,7 @@ vhost-net = ["vhost-kern"]
 vhost-user = []
 vhost-user-master = ["vhost-user"]
 vhost-user-slave = ["vhost-user"]
+xen = ["vm-memory/xen"]
 
 [dependencies]
 bitflags = "1.0"
