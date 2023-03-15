@@ -1,5 +1,6 @@
 // Copyright 2019 Intel Corporation. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+#![allow(unused_imports)]
 
 use super::{Error, Result};
 use crate::vhost_user::Inflight;
@@ -30,6 +31,7 @@ use vm_memory::{
 use vmm_sys_util::eventfd::EventFd;
 
 // Size of a dirty page for vhost-user.
+#[cfg(not(feature = "xen"))]
 const VHOST_LOG_PAGE: u64 = 0x1000;
 
 #[derive(Debug, Clone)]
@@ -59,22 +61,11 @@ pub struct VhostUserHandle {
 
 impl VhostUserHandle {
     pub fn update_mem_table(&mut self, mem: &GuestMemoryMmap) -> Result<()> {
-        let mut regions: Vec<VhostUserMemoryRegionInfo> = Vec::new();
+        let mut regions = Vec::new();
         for region in mem.iter() {
-            let (mmap_handle, mmap_offset) = match region.file_offset() {
-                Some(_file_offset) => (_file_offset.file().as_raw_fd(), _file_offset.start()),
-                None => return Err(Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion)),
-            };
-
-            let vhost_user_net_reg = VhostUserMemoryRegionInfo {
-                guest_phys_addr: region.start_addr().raw_value(),
-                memory_size: region.len() as u64,
-                userspace_addr: region.as_ptr() as u64,
-                mmap_offset,
-                mmap_handle,
-            };
-
-            regions.push(vhost_user_net_reg);
+            let region = VhostUserMemoryRegionInfo::from_guest_region(region)
+                .map_err(|_| Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion))?;
+            regions.push(region);
         }
 
         self.vu
@@ -85,18 +76,8 @@ impl VhostUserHandle {
     }
 
     pub fn add_memory_region(&mut self, region: &Arc<GuestRegionMmap>) -> Result<()> {
-        let (mmap_handle, mmap_offset) = match region.file_offset() {
-            Some(file_offset) => (file_offset.file().as_raw_fd(), file_offset.start()),
-            None => return Err(Error::MissingRegionFd),
-        };
-
-        let region = VhostUserMemoryRegionInfo {
-            guest_phys_addr: region.start_addr().raw_value(),
-            memory_size: region.len() as u64,
-            userspace_addr: region.as_ptr() as u64,
-            mmap_offset,
-            mmap_handle,
-        };
+        let region = VhostUserMemoryRegionInfo::from_guest_region(region)
+            .map_err(|_| Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion))?;
 
         self.vu
             .add_mem_region(&region)
@@ -453,6 +434,7 @@ impl VhostUserHandle {
         }
     }
 
+    #[cfg(not(feature = "xen"))]
     fn update_log_base(&mut self, last_ram_addr: u64) -> Result<Option<Arc<MmapRegion>>> {
         // Create the memfd
         let fd = memfd_create(
@@ -510,6 +492,12 @@ impl VhostUserHandle {
             .map_err(Error::VhostUserSetLogBase)?;
 
         Ok(old_region)
+    }
+
+    #[cfg(feature = "xen")]
+    #[allow(unused_variables)]
+    fn update_log_base(&mut self, last_ram_addr: u64) -> Result<Option<Arc<MmapRegion>>> {
+        Err(Error::MissingShmLogRegion)
     }
 
     fn set_vring_logging(&mut self, enable: bool) -> Result<()> {
@@ -571,6 +559,7 @@ impl VhostUserHandle {
     }
 }
 
+#[cfg(not(feature = "xen"))]
 fn memfd_create(name: &ffi::CStr, flags: u32) -> std::result::Result<RawFd, std::io::Error> {
     let res = unsafe { libc::syscall(libc::SYS_memfd_create, name.as_ptr(), flags) };
 
