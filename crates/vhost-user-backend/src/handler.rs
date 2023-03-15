@@ -22,7 +22,7 @@ use virtio_bindings::bindings::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use virtio_queue::{Error as VirtQueError, QueueT};
 use vm_memory::bitmap::Bitmap;
 use vm_memory::mmap::NewBitmap;
-use vm_memory::{FileOffset, GuestAddress, GuestAddressSpace, GuestMemoryMmap, GuestRegionMmap};
+use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemoryMmap, GuestRegionMmap};
 use vmm_sys_util::epoll::EventSet;
 
 use super::backend::VhostUserBackend;
@@ -277,15 +277,11 @@ where
     ) -> VhostUserResult<()> {
         // We need to create tuple of ranges from the list of VhostUserMemoryRegion
         // that we get from the caller.
-        let mut regions: Vec<(GuestAddress, usize, Option<FileOffset>)> = Vec::new();
+        let mut regions = Vec::new();
         let mut mappings: Vec<AddrMapping> = Vec::new();
 
         for (region, file) in ctx.iter().zip(files) {
-            let g_addr = GuestAddress(region.guest_phys_addr);
-            let len = region.memory_size as usize;
-            let f_off = FileOffset::new(file, region.mmap_offset);
-
-            regions.push((g_addr, len, Some(f_off)));
+            regions.push(region.as_guest_mmap_range(file));
             mappings.push(AddrMapping {
                 vmm_addr: region.user_addr,
                 size: region.memory_size,
@@ -293,7 +289,7 @@ where
             });
         }
 
-        let mem = GuestMemoryMmap::from_ranges_with_files(regions).map_err(|e| {
+        let mem = GuestMemoryMmap::from_ranges(&regions).map_err(|e| {
             VhostUserError::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e))
         })?;
 
@@ -532,13 +528,9 @@ where
         file: File,
     ) -> VhostUserResult<()> {
         let guest_region = Arc::new(
-            GuestRegionMmap::from_range(
-                GuestAddress(region.guest_phys_addr),
-                region.memory_size as usize,
-                Some(FileOffset::new(file, region.mmap_offset)),
-            ).map_err(
-                |e| VhostUserError::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e)),
-            )?,
+            GuestRegionMmap::from_range(&region.as_guest_mmap_range(file)).map_err(|e| {
+                VhostUserError::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e))
+            })?,
         );
 
         let mem = self
@@ -558,9 +550,9 @@ where
             })?;
 
         self.mappings.push(AddrMapping {
-            vmm_addr: region.user_addr,
-            size: region.memory_size,
-            gpa_base: region.guest_phys_addr,
+            vmm_addr: region.user_addr(),
+            size: region.memory_size(),
+            gpa_base: region.guest_phys_addr(),
         });
 
         Ok(())
@@ -570,7 +562,7 @@ where
         let (mem, _) = self
             .atomic_mem
             .memory()
-            .remove_region(GuestAddress(region.guest_phys_addr), region.memory_size)
+            .remove_region(GuestAddress(region.guest_phys_addr()), region.memory_size())
             .map_err(|e| {
                 VhostUserError::ReqHandlerError(io::Error::new(io::ErrorKind::Other, e))
             })?;
@@ -584,7 +576,7 @@ where
             })?;
 
         self.mappings
-            .retain(|mapping| mapping.gpa_base != region.guest_phys_addr);
+            .retain(|mapping| mapping.gpa_base != region.guest_phys_addr());
 
         Ok(())
     }
