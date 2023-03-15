@@ -22,11 +22,12 @@ use vhost::vhost_user::message::{
     VhostUserHeaderFlag, VhostUserInflight, VhostUserProtocolFeatures, VhostUserVirtioFeatures,
 };
 use vhost::vhost_user::{Master, MasterReqHandler, VhostUserMaster, VhostUserMasterReqHandler};
-use vhost::{VhostBackend, VhostUserDirtyLogRegion, VhostUserMemoryRegionInfo, VringConfigData};
-use virtio_queue::{Descriptor, Queue, QueueT};
-use vm_memory::{
-    Address, Error as MmapError, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
+use vhost::{
+    VhostBackend, VhostUserDirtyLogRegion, VhostUserMemoryRegionInfo,
+    VhostUserMemoryRegionInfoTrait, VhostUserXenMemoryRegionInfo, VringConfigData,
 };
+use virtio_queue::{Descriptor, Queue, QueueT};
+use vm_memory::{ByteValued, Error as MmapError, FileOffset, GuestAddress, GuestMemory};
 use vmm_sys_util::eventfd::EventFd;
 
 // Size of a dirty page for vhost-user.
@@ -58,49 +59,49 @@ pub struct VhostUserHandle {
 }
 
 impl VhostUserHandle {
-    pub fn update_mem_table(&mut self, mem: &GuestMemoryMmap) -> Result<()> {
-        let mut regions: Vec<VhostUserMemoryRegionInfo> = Vec::new();
+    pub fn update_mem_table_int<R>(&mut self, mem: &GuestMemoryMmap) -> Result<()>
+    where
+        R: VhostUserMemoryRegionInfoTrait,
+    {
+        let mut regions: Vec<R> = Vec::new();
         for region in mem.iter() {
-            let (mmap_handle, mmap_offset) = match region.file_offset() {
-                Some(_file_offset) => (_file_offset.file().as_raw_fd(), _file_offset.start()),
-                None => return Err(Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion)),
-            };
-
-            let vhost_user_net_reg = VhostUserMemoryRegionInfo {
-                guest_phys_addr: region.start_addr().raw_value(),
-                memory_size: region.len() as u64,
-                userspace_addr: region.as_ptr() as u64,
-                mmap_offset,
-                mmap_handle,
-            };
-
-            regions.push(vhost_user_net_reg);
+            let region = R::from_guest_region(region)
+                .map_err(|_| Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion))?;
+            regions.push(region);
         }
 
         self.vu
             .set_mem_table(regions.as_slice())
-            .map_err(Error::VhostUserSetMemTable)?;
-
-        Ok(())
+            .map_err(Error::VhostUserSetMemTable)
     }
 
-    pub fn add_memory_region(&mut self, region: &Arc<GuestRegionMmap>) -> Result<()> {
-        let (mmap_handle, mmap_offset) = match region.file_offset() {
-            Some(file_offset) => (file_offset.file().as_raw_fd(), file_offset.start()),
-            None => return Err(Error::MissingRegionFd),
-        };
+    pub fn update_mem_table(&mut self, mem: &GuestMemoryMmap) -> Result<()> {
+        if !VhostUserProtocolFeatures::is_xen_mmap(self.acked_protocol_features) {
+            self.update_mem_table_int::<VhostUserMemoryRegionInfo>(mem)
+        } else {
+            self.update_mem_table_int::<VhostUserXenMemoryRegionInfo>(mem)
+        }
+    }
 
-        let region = VhostUserMemoryRegionInfo {
-            guest_phys_addr: region.start_addr().raw_value(),
-            memory_size: region.len() as u64,
-            userspace_addr: region.as_ptr() as u64,
-            mmap_offset,
-            mmap_handle,
-        };
+    pub fn add_mem_table_int<R>(&mut self, region: &Arc<GuestRegionMmap>) -> Result<()>
+    where
+        R: VhostUserMemoryRegionInfoTrait,
+        R::SingleRegion: ByteValued,
+    {
+        let region = R::from_guest_region(region)
+            .map_err(|_| Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion))?;
 
         self.vu
             .add_mem_region(&region)
             .map_err(Error::VhostUserAddMemReg)
+    }
+
+    pub fn add_memory_region(&mut self, region: &Arc<GuestRegionMmap>) -> Result<()> {
+        if !VhostUserProtocolFeatures::is_xen_mmap(self.acked_protocol_features) {
+            self.add_mem_table_int::<VhostUserMemoryRegionInfo>(region)
+        } else {
+            self.add_mem_table_int::<VhostUserXenMemoryRegionInfo>(region)
+        }
     }
 
     pub fn negotiate_features_vhost_user(
