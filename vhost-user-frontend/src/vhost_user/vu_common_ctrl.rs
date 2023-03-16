@@ -52,6 +52,7 @@ pub struct VhostUserHandle {
     supports_migration: bool,
     shm_log: Option<Arc<MmapRegion>>,
     acked_features: u64,
+    acked_protocol_features: u64,
     vrings_info: Option<Vec<VringInfo>>,
     queue_indexes: Vec<usize>,
 }
@@ -158,6 +159,7 @@ impl VhostUserHandle {
         queues: Vec<(usize, Queue, EventFd)>,
         virtio_interrupt: &Arc<dyn VirtioInterrupt>,
         acked_features: u64,
+        acked_protocol_features: u64,
         slave_req_handler: &Option<MasterReqHandler<S>>,
         inflight: Option<&mut Inflight>,
     ) -> Result<()> {
@@ -167,6 +169,8 @@ impl VhostUserHandle {
 
         // Update internal value after it's been sent to the backend.
         self.acked_features = acked_features;
+
+        self.acked_protocol_features = acked_protocol_features;
 
         // Let's first provide the memory table to the backend.
         self.update_mem_table(mem)?;
@@ -354,6 +358,7 @@ impl VhostUserHandle {
             queues,
             virtio_interrupt,
             acked_features,
+            acked_protocol_features,
             slave_req_handler,
             inflight,
         )
@@ -381,6 +386,7 @@ impl VhostUserHandle {
                 supports_migration: false,
                 shm_log: None,
                 acked_features: 0,
+                acked_protocol_features: 0,
                 vrings_info: None,
                 queue_indexes: Vec::new(),
             })
@@ -397,6 +403,7 @@ impl VhostUserHandle {
                             supports_migration: false,
                             shm_log: None,
                             acked_features: 0,
+                            acked_protocol_features: 0,
                             vrings_info: None,
                             queue_indexes: Vec::new(),
                         })

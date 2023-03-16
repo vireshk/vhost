@@ -315,6 +315,7 @@ impl VhostUserCommon {
                     .collect(),
                 &interrupt_cb,
                 acked_features,
+                self.acked_protocol_features,
                 &slave_req_handler,
                 inflight.as_mut(),
             )
