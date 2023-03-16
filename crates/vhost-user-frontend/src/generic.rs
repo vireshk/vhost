@@ -97,9 +97,14 @@ impl Generic {
         self.name.clone()
     }
 
-    pub fn negotiate_features(&mut self, avail_features: u64) -> Result<(u64, u64)> {
+    pub fn negotiate_features(
+        &mut self,
+        avail_features: u64,
+        avail_protocol_features: VhostUserProtocolFeatures,
+    ) -> Result<(u64, u64)> {
         let mut vu = self.vu_common.vu.as_ref().unwrap().lock().unwrap();
-        let avail_protocol_features = VhostUserProtocolFeatures::MQ
+        let avail_protocol_features = avail_protocol_features
+            | VhostUserProtocolFeatures::MQ
             | VhostUserProtocolFeatures::CONFIG
             | VhostUserProtocolFeatures::REPLY_ACK;
 
