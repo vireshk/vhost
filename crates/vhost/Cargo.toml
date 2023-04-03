@@ -33,4 +33,4 @@ vm-memory = { git = "https://github.com/vireshk/vm-memory", branch = "main", fea
 [dev-dependencies]
 tempfile = "3.2.0"
 vm-memory = { git = "https://github.com/vireshk/vm-memory", branch = "main", features = ["backend-mmap"] }
-serial_test = "0.5"
+serial_test = "2.0"
