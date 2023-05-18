@@ -1140,6 +1140,27 @@ mod tests {
     use super::*;
     use std::mem;
 
+    impl VhostUserMemoryRegion {
+        pub fn new_test(
+            guest_phys_addr: u64,
+            memory_size: u64,
+            user_addr: u64,
+            mmap_offset: u64,
+        ) -> Self {
+            Self {
+                guest_phys_addr,
+                memory_size,
+                user_addr,
+                mmap_offset,
+
+                #[cfg(feature = "xen")]
+                xen_mmap_flags: MmapXenFlags::FOREIGN.bits(),
+                #[cfg(feature = "xen")]
+                xen_mmap_data: 0,
+            }
+        }
+    }
+
     #[test]
     fn check_master_request_code() {
         assert!(!MasterReq::is_valid(MasterReq::NOOP as _));
@@ -1245,12 +1266,7 @@ mod tests {
 
     #[test]
     fn check_user_memory_region() {
-        let mut msg = VhostUserMemoryRegion {
-            guest_phys_addr: 0,
-            memory_size: 0x1000,
-            user_addr: 0,
-            mmap_offset: 0,
-        };
+        let mut msg = VhostUserMemoryRegion::new_test(0, 0x1000, 0, 0);
         assert!(msg.is_valid());
         msg.guest_phys_addr = 0xFFFFFFFFFFFFEFFF;
         assert!(msg.is_valid());

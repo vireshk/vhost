@@ -19,6 +19,28 @@ use vm_memory::{
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 
+#[cfg(not(feature = "xen"))]
+fn guest_memory_mmap(file_offset: FileOffset) -> GuestMemoryMmap {
+    GuestMemoryMmap::<()>::from_ranges_with_files(&[(
+        GuestAddress(0x100000),
+        0x100000,
+        Some(file_offset),
+    )])
+    .unwrap()
+}
+
+#[cfg(feature = "xen")]
+fn guest_memory_mmap(file_offset: FileOffset) -> GuestMemoryMmap {
+    GuestMemoryMmap::<()>::from_ranges_with_files(&[(
+        GuestAddress(0x100000),
+        0x100000,
+        Some(file_offset),
+        vm_memory::MmapXenFlags::UNIX.bits(),
+        0,
+    )])
+    .unwrap()
+}
+
 struct MockVhostBackend {
     events: u64,
     event_idx: bool,
@@ -156,22 +178,17 @@ fn vhost_user_client(path: &Path, barrier: Arc<Barrier>) {
     let file = unsafe { File::from_raw_fd(memfd) };
     file.set_len(0x100000).unwrap();
     let file_offset = FileOffset::new(file, 0);
-    let mem = GuestMemoryMmap::<()>::from_ranges_with_files(&[(
-        GuestAddress(0x100000),
-        0x100000,
-        Some(file_offset),
-    )])
-    .unwrap();
+    let mem = guest_memory_mmap(file_offset);
     let addr = mem.get_host_address(GuestAddress(0x100000)).unwrap() as u64;
     let reg = mem.find_region(GuestAddress(0x100000)).unwrap();
     let fd = reg.file_offset().unwrap();
-    let regions = [VhostUserMemoryRegionInfo {
-        guest_phys_addr: 0x100000,
-        memory_size: 0x100000,
-        userspace_addr: addr,
-        mmap_offset: 0,
-        mmap_handle: fd.file().as_raw_fd(),
-    }];
+    let regions = [VhostUserMemoryRegionInfo::new(
+        0x100000,
+        0x100000,
+        addr,
+        0,
+        fd.file().as_raw_fd(),
+    )];
     master.set_mem_table(&regions).unwrap();
 
     master.set_vring_num(0, 256).unwrap();
@@ -209,13 +226,7 @@ fn vhost_user_client(path: &Path, barrier: Arc<Barrier>) {
     master.set_vring_base(0, state as u16).unwrap();
 
     assert_eq!(master.get_max_mem_slots().unwrap(), 32);
-    let region = VhostUserMemoryRegionInfo {
-        guest_phys_addr: 0x800000,
-        memory_size: 0x100000,
-        userspace_addr: addr,
-        mmap_offset: 0,
-        mmap_handle: fd.file().as_raw_fd(),
-    };
+    let region = VhostUserMemoryRegionInfo::new(0x800000, 0x100000, addr, 0, fd.file().as_raw_fd());
     master.add_mem_region(&region).unwrap();
     master.remove_mem_region(&region).unwrap();
 }

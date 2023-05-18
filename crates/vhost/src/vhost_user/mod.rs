@@ -348,6 +348,7 @@ mod tests {
             assert_eq!(
                 slave_be.lock().unwrap().acked_protocol_features,
                 VhostUserProtocolFeatures::all().bits()
+                    & !VhostUserProtocolFeatures::XEN_MMAP.bits()
             );
 
             // get_inflight_fd()
@@ -403,8 +404,11 @@ mod tests {
         master.set_features(VIRTIO_FEATURES & !0x1).unwrap();
 
         // set vhost protocol features
-        let features = master.get_protocol_features().unwrap();
+        let mut features = master.get_protocol_features().unwrap();
         assert_eq!(features.bits(), VhostUserProtocolFeatures::all().bits());
+
+        // Disable Xen mmap feature.
+        features.remove(VhostUserProtocolFeatures::XEN_MMAP);
         master.set_protocol_features(features).unwrap();
 
         // Retrieve inflight I/O tracking information
@@ -424,13 +428,13 @@ mod tests {
         assert_eq!(num, 2);
 
         let eventfd = vmm_sys_util::eventfd::EventFd::new(0).unwrap();
-        let mem = [VhostUserMemoryRegionInfo {
-            guest_phys_addr: 0,
-            memory_size: 0x10_0000,
-            userspace_addr: 0,
-            mmap_offset: 0,
-            mmap_handle: eventfd.as_raw_fd(),
-        }];
+        let mem = [VhostUserMemoryRegionInfo::new(
+            0,
+            0x10_0000,
+            0,
+            0,
+            eventfd.as_raw_fd(),
+        )];
         master.set_mem_table(&mem).unwrap();
 
         master
@@ -479,13 +483,8 @@ mod tests {
         assert_eq!(max_mem_slots, 32);
 
         let region_file: File = TempFile::new().unwrap().into_file();
-        let region = VhostUserMemoryRegionInfo {
-            guest_phys_addr: 0x10_0000,
-            memory_size: 0x10_0000,
-            userspace_addr: 0,
-            mmap_offset: 0,
-            mmap_handle: region_file.as_raw_fd(),
-        };
+        let region =
+            VhostUserMemoryRegionInfo::new(0x10_0000, 0x10_0000, 0, 0, region_file.as_raw_fd());
         master.add_mem_region(&region).unwrap();
 
         master.remove_mem_region(&region).unwrap();
