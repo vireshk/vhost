@@ -66,7 +66,7 @@ impl<AS: GuestAddressSpace> AsRawFd for Net<AS> {
 
 #[cfg(test)]
 mod tests {
-    use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+    use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMmapRange};
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
@@ -78,7 +78,12 @@ mod tests {
     #[test]
     #[serial]
     fn test_net_new_device() {
-        let m = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10_0000)]).unwrap();
+        let m = GuestMemoryMmap::<()>::from_ranges(&[GuestMmapRange::new(
+            GuestAddress(0),
+            0x10_0000,
+            None,
+        )])
+        .unwrap();
         let net = Net::new(&m).unwrap();
 
         assert!(net.as_raw_fd() >= 0);
@@ -89,7 +94,12 @@ mod tests {
     #[test]
     #[serial]
     fn test_net_is_valid() {
-        let m = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10_0000)]).unwrap();
+        let m = GuestMemoryMmap::<()>::from_ranges(&[GuestMmapRange::new(
+            GuestAddress(0),
+            0x10_0000,
+            None,
+        )])
+        .unwrap();
         let net = Net::new(&m).unwrap();
 
         let mut config = VringConfigData {
@@ -114,7 +124,12 @@ mod tests {
     #[test]
     #[serial]
     fn test_net_ioctls() {
-        let m = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10_0000)]).unwrap();
+        let m = GuestMemoryMmap::<()>::from_ranges(&[GuestMmapRange::new(
+            GuestAddress(0),
+            0x10_0000,
+            None,
+        )])
+        .unwrap();
         let net = Net::new(&m).unwrap();
         let backend = OpenOptions::new()
             .read(true)
@@ -129,13 +144,13 @@ mod tests {
 
         net.set_mem_table(&[]).unwrap_err();
 
-        let region = VhostUserMemoryRegionInfo {
-            guest_phys_addr: 0x0,
-            memory_size: 0x10_0000,
-            userspace_addr: m.get_host_address(GuestAddress(0x0)).unwrap() as u64,
-            mmap_offset: 0,
-            mmap_handle: -1,
-        };
+        let region = VhostUserMemoryRegionInfo::new(
+            0x0,
+            0x10_0000,
+            m.get_host_address(GuestAddress(0x0)).unwrap() as u64,
+            0,
+            -1,
+        );
         net.set_mem_table(&[region]).unwrap();
 
         net.set_log_base(

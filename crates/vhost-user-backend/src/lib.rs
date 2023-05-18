@@ -194,12 +194,17 @@ mod tests {
     use super::*;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::sync::Barrier;
-    use vm_memory::{GuestAddress, GuestMemoryAtomic, GuestMemoryMmap};
+    use vm_memory::{GuestAddress, GuestMemoryAtomic, GuestMemoryMmap, GuestMmapRange};
 
     #[test]
     fn test_new_daemon() {
         let mem = GuestMemoryAtomic::new(
-            GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0x100000), 0x10000)]).unwrap(),
+            GuestMemoryMmap::<()>::from_ranges(&[GuestMmapRange::new(
+                GuestAddress(0x100000),
+                0x10000,
+                None,
+            )])
+            .unwrap(),
         );
         let backend = Arc::new(Mutex::new(MockVhostBackend::new()));
         let mut daemon = VhostUserDaemon::new("test".to_owned(), backend, mem).unwrap();
@@ -234,7 +239,12 @@ mod tests {
     #[test]
     fn test_new_daemon_client() {
         let mem = GuestMemoryAtomic::new(
-            GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0x100000), 0x10000)]).unwrap(),
+            GuestMemoryMmap::<()>::from_ranges(&[GuestMmapRange::new(
+                GuestAddress(0x100000),
+                0x10000,
+                None,
+            )])
+            .unwrap(),
         );
         let backend = Arc::new(Mutex::new(MockVhostBackend::new()));
         let mut daemon = VhostUserDaemon::new("test".to_owned(), backend, mem).unwrap();

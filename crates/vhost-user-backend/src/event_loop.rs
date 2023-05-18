@@ -238,13 +238,18 @@ mod tests {
     use super::super::vring::VringRwLock;
     use super::*;
     use std::sync::{Arc, Mutex};
-    use vm_memory::{GuestAddress, GuestMemoryAtomic, GuestMemoryMmap};
+    use vm_memory::{GuestAddress, GuestMemoryAtomic, GuestMemoryMmap, GuestMmapRange};
     use vmm_sys_util::eventfd::EventFd;
 
     #[test]
     fn test_vring_epoll_handler() {
         let mem = GuestMemoryAtomic::new(
-            GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0x100000), 0x10000)]).unwrap(),
+            GuestMemoryMmap::<()>::from_ranges(&[GuestMmapRange::new(
+                GuestAddress(0x100000),
+                0x10000,
+                None,
+            )])
+            .unwrap(),
         );
         let vring = VringRwLock::new(mem, 0x1000).unwrap();
         let backend = Arc::new(Mutex::new(MockVhostBackend::new()));

@@ -466,14 +466,18 @@ impl<M: 'static + GuestAddressSpace> VringT<M> for VringRwLock<M> {
 mod tests {
     use super::*;
     use std::os::unix::io::AsRawFd;
-    use vm_memory::bitmap::AtomicBitmap;
+    use vm_memory::{bitmap::AtomicBitmap, GuestMmapRange};
     use vmm_sys_util::eventfd::EventFd;
 
     #[test]
     fn test_new_vring() {
         let mem = GuestMemoryAtomic::new(
-            GuestMemoryMmap::<AtomicBitmap>::from_ranges(&[(GuestAddress(0x100000), 0x10000)])
-                .unwrap(),
+            GuestMemoryMmap::<AtomicBitmap>::from_ranges(&[GuestMmapRange::new(
+                GuestAddress(0x100000),
+                0x10000,
+                None,
+            )])
+            .unwrap(),
         );
         let vring = VringMutex::new(mem, 0x1000).unwrap();
 
@@ -507,7 +511,12 @@ mod tests {
     #[test]
     fn test_vring_set_fd() {
         let mem = GuestMemoryAtomic::new(
-            GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0x100000), 0x10000)]).unwrap(),
+            GuestMemoryMmap::<()>::from_ranges(&[GuestMmapRange::new(
+                GuestAddress(0x100000),
+                0x10000,
+                None,
+            )])
+            .unwrap(),
         );
         let vring = VringMutex::new(mem, 0x1000).unwrap();
 

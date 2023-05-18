@@ -397,7 +397,7 @@ pub mod tests {
     use super::*;
     use crate::VringRwLock;
     use std::sync::Mutex;
-    use vm_memory::{GuestAddress, GuestMemoryAtomic, GuestMemoryMmap};
+    use vm_memory::{GuestAddress, GuestMemoryAtomic, GuestMemoryMmap, GuestMmapRange};
 
     pub struct MockVhostBackend {
         events: u64,
@@ -509,7 +509,12 @@ pub mod tests {
         let _ = backend.exit_event(0).unwrap();
 
         let mem = GuestMemoryAtomic::new(
-            GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0x100000), 0x10000)]).unwrap(),
+            GuestMemoryMmap::<()>::from_ranges(&[GuestMmapRange::new(
+                GuestAddress(0x100000),
+                0x10000,
+                None,
+            )])
+            .unwrap(),
         );
         backend.update_memory(mem).unwrap();
     }
@@ -539,7 +544,12 @@ pub mod tests {
         let _ = backend.exit_event(0).unwrap();
 
         let mem = GuestMemoryAtomic::new(
-            GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0x100000), 0x10000)]).unwrap(),
+            GuestMemoryMmap::<()>::from_ranges(&[GuestMmapRange::new(
+                GuestAddress(0x100000),
+                0x10000,
+                None,
+            )])
+            .unwrap(),
         );
         backend.update_memory(mem.clone()).unwrap();
 

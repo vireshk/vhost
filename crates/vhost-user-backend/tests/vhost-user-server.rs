@@ -15,6 +15,7 @@ use vhost::{VhostBackend, VhostUserMemoryRegionInfo, VringConfigData};
 use vhost_user_backend::{VhostUserBackendMut, VhostUserDaemon, VringRwLock};
 use vm_memory::{
     FileOffset, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryAtomic, GuestMemoryMmap,
+    GuestMmapRange,
 };
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
@@ -156,7 +157,7 @@ fn vhost_user_client(path: &Path, barrier: Arc<Barrier>) {
     let file = unsafe { File::from_raw_fd(memfd) };
     file.set_len(0x100000).unwrap();
     let file_offset = FileOffset::new(file, 0);
-    let mem = GuestMemoryMmap::<()>::from_ranges_with_files(&[(
+    let mem = GuestMemoryMmap::<()>::from_ranges(&[GuestMmapRange::new(
         GuestAddress(0x100000),
         0x100000,
         Some(file_offset),
@@ -165,13 +166,13 @@ fn vhost_user_client(path: &Path, barrier: Arc<Barrier>) {
     let addr = mem.get_host_address(GuestAddress(0x100000)).unwrap() as u64;
     let reg = mem.find_region(GuestAddress(0x100000)).unwrap();
     let fd = reg.file_offset().unwrap();
-    let regions = [VhostUserMemoryRegionInfo {
-        guest_phys_addr: 0x100000,
-        memory_size: 0x100000,
-        userspace_addr: addr,
-        mmap_offset: 0,
-        mmap_handle: fd.file().as_raw_fd(),
-    }];
+    let regions = [VhostUserMemoryRegionInfo::new(
+        0x100000,
+        0x100000,
+        addr,
+        0,
+        fd.file().as_raw_fd(),
+    )];
     master.set_mem_table(&regions).unwrap();
 
     master.set_vring_num(0, 256).unwrap();
@@ -209,13 +210,7 @@ fn vhost_user_client(path: &Path, barrier: Arc<Barrier>) {
     master.set_vring_base(0, state as u16).unwrap();
 
     assert_eq!(master.get_max_mem_slots().unwrap(), 32);
-    let region = VhostUserMemoryRegionInfo {
-        guest_phys_addr: 0x800000,
-        memory_size: 0x100000,
-        userspace_addr: addr,
-        mmap_offset: 0,
-        mmap_handle: fd.file().as_raw_fd(),
-    };
+    let region = VhostUserMemoryRegionInfo::new(0x800000, 0x100000, addr, 0, fd.file().as_raw_fd());
     master.add_mem_region(&region).unwrap();
     master.remove_mem_region(&region).unwrap();
 }
