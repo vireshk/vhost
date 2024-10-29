@@ -192,7 +192,7 @@ impl VirtioDeviceType {
             VirtioDeviceType::Gpu => (0, 0),
             VirtioDeviceType::Fs9P => (0, 0),
             VirtioDeviceType::Input => (0, 0),
-            VirtioDeviceType::Vsock => (0, 0),
+            VirtioDeviceType::Vsock => (3, 1024),
             VirtioDeviceType::Iommu => (0, 0),
             VirtioDeviceType::Mem => (0, 0),
             VirtioDeviceType::Fs => (2, 1024),
