@@ -27,10 +27,13 @@ use std::fmt::{self, Debug};
 
 use virtio_queue::{Queue, QueueT};
 use vm_memory::{bitmap::AtomicBitmap, GuestAddress, GuestMemory};
+use vm_memory::GuestMemoryAtomic;
 
-pub type GuestMemoryMmap = vm_memory::GuestMemoryMmap<AtomicBitmap>;
-pub type GuestRegionMmap = vm_memory::GuestRegionMmap<AtomicBitmap>;
-pub type MmapRegion = vm_memory::MmapRegion<AtomicBitmap>;
+pub type GuestRegionCollection = vm_memory::GuestRegionCollection<GuestRegion>;
+pub type GuestRegion = vhost::MemoryRegion<AtomicBitmap>;
+
+/// An alias for `GuestMemoryAtomic<GuestMemoryMmap<B>>` to simplify code.
+type GM = GuestMemoryAtomic<GuestRegionCollection>;
 
 const VIRTIO_F_RING_INDIRECT_DESC: u32 = 28;
 const VIRTIO_F_RING_EVENT_IDX: u32 = 29;

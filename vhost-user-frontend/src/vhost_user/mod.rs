@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    clone_queue, ActivateError, EpollHelper, EpollHelperError, EpollHelperHandler, GuestMemoryMmap,
-    GuestRegionMmap, VirtioInterrupt, EPOLL_HELPER_EVENT_LAST, VIRTIO_F_IN_ORDER,
+    clone_queue, ActivateError, EpollHelper, EpollHelperError, EpollHelperHandler,
+    GuestRegion, GM, VirtioInterrupt, EPOLL_HELPER_EVENT_LAST, VIRTIO_F_IN_ORDER,
     VIRTIO_F_NOTIFICATION_DATA, VIRTIO_F_ORDER_PLATFORM, VIRTIO_F_RING_EVENT_IDX,
     VIRTIO_F_RING_INDIRECT_DESC, VIRTIO_F_VERSION_1,
 };
@@ -15,11 +15,11 @@ use std::sync::{atomic::AtomicBool, Arc, Barrier, Mutex};
 use vhost::vhost_user::message::{
     VhostUserInflight, VhostUserProtocolFeatures, VhostUserVirtioFeatures,
 };
-use vhost::vhost_user::{MasterReqHandler, VhostUserMasterReqHandler};
+use vhost::vhost_user::{FrontendReqHandler, VhostUserFrontendReqHandler};
 use vhost::Error as VhostError;
 use virtio_queue::Error as QueueError;
 use virtio_queue::Queue;
-use vm_memory::{mmap::MmapRegionError, Error as MmapError, GuestAddressSpace, GuestMemoryAtomic};
+use vm_memory::{mmap::MmapRegionError, GuestRegionCollectionError as MmapError, GuestAddressSpace};
 use vmm_sys_util::eventfd::EventFd;
 pub(crate) use vu_common_ctrl::VhostUserHandle;
 
@@ -150,9 +150,9 @@ pub struct Inflight {
     pub fd: Option<std::fs::File>,
 }
 
-pub struct VhostUserEpollHandler<S: VhostUserMasterReqHandler> {
+pub struct VhostUserEpollHandler<S: VhostUserFrontendReqHandler> {
     pub vu: Arc<Mutex<VhostUserHandle>>,
-    pub mem: GuestMemoryAtomic<GuestMemoryMmap>,
+    pub mem: GM,
     pub kill_evt: EventFd,
     pub pause_evt: EventFd,
     pub queues: Vec<(usize, Queue, EventFd)>,
@@ -161,11 +161,11 @@ pub struct VhostUserEpollHandler<S: VhostUserMasterReqHandler> {
     pub acked_protocol_features: u64,
     pub socket_path: String,
     pub server: bool,
-    pub slave_req_handler: Option<MasterReqHandler<S>>,
+    pub slave_req_handler: Option<FrontendReqHandler<S>>,
     pub inflight: Option<Inflight>,
 }
 
-impl<S: VhostUserMasterReqHandler> VhostUserEpollHandler<S> {
+impl<S: VhostUserFrontendReqHandler> VhostUserEpollHandler<S> {
     pub fn run(
         &mut self,
         paused: Arc<AtomicBool>,
@@ -242,7 +242,7 @@ impl<S: VhostUserMasterReqHandler> VhostUserEpollHandler<S> {
     }
 }
 
-impl<S: VhostUserMasterReqHandler> EpollHelperHandler for VhostUserEpollHandler<S> {
+impl<S: VhostUserFrontendReqHandler> EpollHelperHandler for VhostUserEpollHandler<S> {
     fn handle_event(&mut self, helper: &mut EpollHelper, event: &epoll::Event) -> bool {
         let ev_type = event.data as u16;
         match ev_type {
@@ -282,13 +282,13 @@ pub struct VhostUserCommon {
 
 impl VhostUserCommon {
     #[allow(clippy::too_many_arguments)]
-    pub fn activate<T: VhostUserMasterReqHandler>(
+    pub fn activate<T: VhostUserFrontendReqHandler>(
         &mut self,
-        mem: GuestMemoryAtomic<GuestMemoryMmap>,
+        mem: GM,
         queues: Vec<(usize, Queue, EventFd)>,
         interrupt_cb: Arc<dyn VirtioInterrupt>,
         acked_features: u64,
-        slave_req_handler: Option<MasterReqHandler<T>>,
+        slave_req_handler: Option<FrontendReqHandler<T>>,
         kill_evt: EventFd,
         pause_evt: EventFd,
     ) -> std::result::Result<VhostUserEpollHandler<T>, ActivateError> {
@@ -365,8 +365,8 @@ impl VhostUserCommon {
 
     pub fn add_memory_region(
         &mut self,
-        guest_memory: &Option<GuestMemoryAtomic<GuestMemoryMmap>>,
-        region: &Arc<GuestRegionMmap>,
+        guest_memory: &Option<GM>,
+        region: &Arc<GuestRegion>,
     ) -> std::result::Result<(), Error> {
         if let Some(vu) = &self.vu {
             if self.acked_protocol_features & VhostUserProtocolFeatures::CONFIGURE_MEM_SLOTS.bits()

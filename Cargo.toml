@@ -7,8 +7,12 @@ members = [
     "vhost-user-frontend",
 ]
 
+[patch.crates-io]
+virtio-queue = { path = "../vm-virtio/virtio-queue" }
+vm-memory = { path = "../vm-memory" }
+
 [workspace.dependencies]
 virtio-bindings = "0.2.6"
 virtio-queue = "0.16.0"
-vm-memory = "0.16.2"
+vm-memory = "0.17.0"
 vmm-sys-util = "0.15.0"

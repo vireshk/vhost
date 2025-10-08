@@ -11,13 +11,12 @@ use std::vec::Vec;
 use vhost::vhost_user::message::{
     VhostUserConfigFlags, VhostUserProtocolFeatures, VhostUserVirtioFeatures,
 };
-use vhost::vhost_user::{MasterReqHandler, VhostUserMaster, VhostUserMasterReqHandler};
+use vhost::vhost_user::{FrontendReqHandler, VhostUserFrontend, VhostUserFrontendReqHandler};
 use virtio_queue::Queue;
-use vm_memory::GuestMemoryAtomic;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::{
-    spawn_virtio_thread, ActivateResult, Error, GuestMemoryMmap, GuestRegionMmap, Result, Thread,
+    spawn_virtio_thread, ActivateResult, Error, GuestRegion, GM, Result, Thread,
     VhostUserCommon, VhostUserConfig, VhostUserHandle, VirtioCommon, VirtioDevice,
     VirtioDeviceType, VirtioInterrupt,
 };
@@ -31,14 +30,14 @@ pub struct State {
     pub vu_num_queues: usize,
 }
 
-struct SlaveReqHandler {}
-impl VhostUserMasterReqHandler for SlaveReqHandler {}
+struct BackendReqHandler {}
+impl VhostUserFrontendReqHandler for BackendReqHandler {}
 
 pub struct Generic {
     common: VirtioCommon,
     vu_common: VhostUserCommon,
     id: String,
-    guest_memory: Option<GuestMemoryAtomic<GuestMemoryMmap>>,
+    guest_memory: Option<GM>,
     epoll_thread: Option<thread::JoinHandle<()>>,
     seccomp_action: SeccompAction,
     exit_evt: EventFd,
@@ -223,14 +222,14 @@ impl VirtioDevice for Generic {
 
     fn activate(
         &mut self,
-        mem: GuestMemoryAtomic<GuestMemoryMmap>,
+        mem: GM,
         interrupt: Arc<dyn VirtioInterrupt>,
         queues: Vec<(usize, Queue, EventFd)>,
     ) -> ActivateResult {
         self.common.activate(&queues, &interrupt)?;
         self.guest_memory = Some(mem.clone());
 
-        let slave_req_handler: Option<MasterReqHandler<SlaveReqHandler>> = None;
+        let slave_req_handler: Option<FrontendReqHandler<BackendReqHandler>> = None;
 
         // Run a dedicated thread for handling potential reconnections with
         // the backend.
@@ -291,7 +290,7 @@ impl VirtioDevice for Generic {
 
     fn add_memory_region(
         &mut self,
-        region: &Arc<GuestRegionMmap>,
+        region: &Arc<GuestRegion>,
     ) -> std::result::Result<(), Error> {
         self.vu_common.add_memory_region(&self.guest_memory, region)
     }

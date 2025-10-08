@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
 use crate::{
-    AccessPlatform, ActivateError, ActivateResult, Error, GuestMemoryMmap, GuestRegionMmap,
+    AccessPlatform, ActivateError, ActivateResult, Error, GM, GuestRegion,
     VirtioDeviceType, VIRTIO_F_RING_INDIRECT_DESC,
 };
 use libc::EFD_NONBLOCK;
@@ -17,7 +17,7 @@ use std::num::Wrapping;
 use std::sync::{atomic::AtomicBool, Arc, Barrier};
 use std::thread;
 use virtio_queue::Queue;
-use vm_memory::{GuestAddress, GuestMemoryAtomic, GuestUsize};
+use vm_memory::{GuestAddress, GuestUsize};
 use vmm_sys_util::eventfd::EventFd;
 
 pub enum VirtioInterruptType {
@@ -99,7 +99,7 @@ pub trait VirtioDevice: Send {
     /// Activates this device for real usage.
     fn activate(
         &mut self,
-        mem: GuestMemoryAtomic<GuestMemoryMmap>,
+        mem: GM,
         interrupt_evt: Arc<dyn VirtioInterrupt>,
         queues: Vec<(usize, Queue, EventFd)>,
     ) -> ActivateResult;
@@ -131,7 +131,7 @@ pub trait VirtioDevice: Send {
 
     fn add_memory_region(
         &mut self,
-        _region: &Arc<GuestRegionMmap>,
+        _region: &Arc<GuestRegion>,
     ) -> std::result::Result<(), Error> {
         Ok(())
     }

@@ -1,11 +1,12 @@
 // Copyright 2019 Intel Corporation. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 #![allow(unused_imports)]
+use std::convert::TryFrom;
 
 use super::{Error, Result};
 use crate::vhost_user::Inflight;
 use crate::{
-    get_host_address_range, GuestMemoryMmap, GuestRegionMmap, MmapRegion, VirtioInterrupt,
+    get_host_address_range, GuestRegionCollection, VirtioInterrupt,
     VirtioInterruptType,
 };
 use std::convert::TryInto;
@@ -22,12 +23,20 @@ use vhost::vhost_kern::vhost_binding::{VHOST_F_LOG_ALL, VHOST_VRING_F_LOG};
 use vhost::vhost_user::message::{
     VhostUserHeaderFlag, VhostUserInflight, VhostUserProtocolFeatures, VhostUserVirtioFeatures,
 };
-use vhost::vhost_user::{Master, MasterReqHandler, VhostUserMaster, VhostUserMasterReqHandler};
+use vhost::vhost_user::{Frontend, FrontendReqHandler, VhostUserFrontend, VhostUserFrontendReqHandler};
 use vhost::{VhostBackend, VhostUserDirtyLogRegion, VhostUserMemoryRegionInfo, VringConfigData};
-use virtio_queue::{Descriptor, Queue, QueueT};
+use virtio_queue::{desc::RawDescriptor, Queue, QueueT};
 use vm_memory::{
-    Address, Error as MmapError, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
+    Address, GuestRegionCollectionError as MmapError, FileOffset, GuestAddress,
+    GuestMemory, GuestMemoryRegion,
 };
+#[cfg(not(feature = "xen"))]
+use vm_memory::MmapRegion;
+
+#[cfg(not(feature = "xen"))]
+type ShmLogRegion = MmapRegion;
+#[cfg(feature = "xen")]
+type ShmLogRegion = ();
 use vmm_sys_util::eventfd::EventFd;
 
 // Size of a dirty page for vhost-user.
@@ -49,10 +58,10 @@ struct VringInfo {
 
 #[derive(Clone)]
 pub struct VhostUserHandle {
-    vu: Master,
+    vu: Frontend,
     ready: bool,
     supports_migration: bool,
-    shm_log: Option<Arc<MmapRegion>>,
+    shm_log: Option<Arc<ShmLogRegion>>,
     acked_features: u64,
     acked_protocol_features: u64,
     vrings_info: Option<Vec<VringInfo>>,
@@ -60,12 +69,19 @@ pub struct VhostUserHandle {
 }
 
 impl VhostUserHandle {
-    pub fn update_mem_table(&mut self, mem: &GuestMemoryMmap) -> Result<()> {
+    pub fn update_mem_table(&mut self, mem: &GuestRegionCollection) -> Result<()> {
         let mut regions = Vec::new();
         for region in mem.iter() {
-            let region = VhostUserMemoryRegionInfo::from_guest_region(region)
-                .map_err(|_| Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion))?;
-            regions.push(region);
+            let info = match region {
+                vhost::MemoryRegion::Unix(r) =>
+                    VhostUserMemoryRegionInfo::try_from(r)
+                        .map_err(|_| Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion))?,
+                #[cfg(feature = "xen")]
+                vhost::MemoryRegion::Xen(r) =>
+                    VhostUserMemoryRegionInfo::try_from(r)
+                        .map_err(|_| Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion))?,
+            };
+            regions.push(info);
         }
 
         self.vu
@@ -75,9 +91,16 @@ impl VhostUserHandle {
         Ok(())
     }
 
-    pub fn add_memory_region(&mut self, region: &Arc<GuestRegionMmap>) -> Result<()> {
-        let region = VhostUserMemoryRegionInfo::from_guest_region(region)
-            .map_err(|_| Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion))?;
+    pub fn add_memory_region(&mut self, region: &Arc<crate::GuestRegion>) -> Result<()> {
+        let region = match region.as_ref() {
+            vhost::MemoryRegion::Unix(r) =>
+                VhostUserMemoryRegionInfo::try_from(r)
+                    .map_err(|_| Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion))?,
+            #[cfg(feature = "xen")]
+            vhost::MemoryRegion::Xen(r) =>
+                VhostUserMemoryRegionInfo::try_from(r)
+                    .map_err(|_| Error::VhostUserMemoryRegion(MmapError::NoMemoryRegion))?,
+        };
 
         self.vu
             .add_mem_region(&region)
@@ -134,14 +157,14 @@ impl VhostUserHandle {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn setup_vhost_user<S: VhostUserMasterReqHandler>(
+    pub fn setup_vhost_user<S: VhostUserFrontendReqHandler>(
         &mut self,
-        mem: &GuestMemoryMmap,
+        mem: &GuestRegionCollection,
         queues: Vec<(usize, Queue, EventFd)>,
         virtio_interrupt: &Arc<dyn VirtioInterrupt>,
         acked_features: u64,
         acked_protocol_features: u64,
-        slave_req_handler: &Option<MasterReqHandler<S>>,
+        slave_req_handler: &Option<FrontendReqHandler<S>>,
         inflight: Option<&mut Inflight>,
     ) -> Result<()> {
         self.vu
@@ -198,7 +221,7 @@ impl VhostUserHandle {
                 desc_table_addr: get_host_address_range(
                     mem,
                     GuestAddress(queue.desc_table()),
-                    actual_size * std::mem::size_of::<Descriptor>(),
+                    actual_size * std::mem::size_of::<RawDescriptor>(),
                 )
                 .ok_or(Error::DescriptorTableAddress)? as u64,
                 // The used ring is {flags: u16; idx: u16; virtq_used_elem [{id: u16, len: u16}; actual_size]},
@@ -257,7 +280,7 @@ impl VhostUserHandle {
 
         if let Some(slave_req_handler) = slave_req_handler {
             self.vu
-                .set_slave_request_fd(&slave_req_handler.get_tx_raw_fd())
+                .set_backend_request_fd(&slave_req_handler.get_tx_raw_fd())
                 .map_err(Error::VhostUserSetSlaveRequestFd)?;
         }
 
@@ -322,14 +345,14 @@ impl VhostUserHandle {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn reinitialize_vhost_user<S: VhostUserMasterReqHandler>(
+    pub fn reinitialize_vhost_user<S: VhostUserFrontendReqHandler>(
         &mut self,
-        mem: &GuestMemoryMmap,
+        mem: &GuestRegionCollection,
         queues: Vec<(usize, Queue, EventFd)>,
         virtio_interrupt: &Arc<dyn VirtioInterrupt>,
         acked_features: u64,
         acked_protocol_features: u64,
-        slave_req_handler: &Option<MasterReqHandler<S>>,
+        slave_req_handler: &Option<FrontendReqHandler<S>>,
         inflight: Option<&mut Inflight>,
     ) -> Result<()> {
         self.set_protocol_features_vhost_user(acked_features, acked_protocol_features)?;
@@ -362,7 +385,7 @@ impl VhostUserHandle {
             let (stream, _) = listener.accept().map_err(Error::AcceptConnection)?;
 
             Ok(VhostUserHandle {
-                vu: Master::from_stream(stream, num_queues),
+                vu: Frontend::from_stream(stream, num_queues),
                 ready: false,
                 supports_migration: false,
                 shm_log: None,
@@ -376,7 +399,7 @@ impl VhostUserHandle {
 
             // Retry connecting for a full minute
             let err = loop {
-                let err = match Master::connect(socket_path, num_queues) {
+                let err = match Frontend::connect(socket_path, num_queues) {
                     Ok(m) => {
                         return Ok(VhostUserHandle {
                             vu: m,
@@ -406,7 +429,7 @@ impl VhostUserHandle {
         }
     }
 
-    pub fn socket_handle(&mut self) -> &mut Master {
+    pub fn socket_handle(&mut self) -> &mut Frontend {
         &mut self.vu
     }
 
@@ -435,7 +458,7 @@ impl VhostUserHandle {
     }
 
     #[cfg(not(feature = "xen"))]
-    fn update_log_base(&mut self, last_ram_addr: u64) -> Result<Option<Arc<MmapRegion>>> {
+    fn update_log_base(&mut self, last_ram_addr: u64) -> Result<Option<Arc<ShmLogRegion>>> {
         // Create the memfd
         let fd = memfd_create(
             &ffi::CString::new("vhost_user_dirty_log").unwrap(),
@@ -491,7 +514,7 @@ impl VhostUserHandle {
 
     #[cfg(feature = "xen")]
     #[allow(unused_variables)]
-    fn update_log_base(&mut self, last_ram_addr: u64) -> Result<Option<Arc<MmapRegion>>> {
+    fn update_log_base(&mut self, last_ram_addr: u64) -> Result<Option<Arc<ShmLogRegion>>> {
         Err(Error::MissingShmLogRegion)
     }
 
