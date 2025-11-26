@@ -15,7 +15,7 @@ use std::sync::{atomic::AtomicBool, Arc, Barrier, Mutex};
 use vhost::vhost_user::message::{
     VhostUserInflight, VhostUserProtocolFeatures, VhostUserVirtioFeatures,
 };
-use vhost::vhost_user::{MasterReqHandler, VhostUserMasterReqHandler};
+use vhost::vhost_user::{FrontendReqHandler, VhostUserFrontendReqHandler};
 use vhost::Error as VhostError;
 use virtio_queue::Error as QueueError;
 use virtio_queue::Queue;
@@ -48,8 +48,8 @@ pub enum Error {
     MemoryRegions(MmapError),
     /// Failed removing socket path
     RemoveSocketPath(io::Error),
-    /// Failed to create master.
-    VhostUserCreateMaster(VhostError),
+    /// Failed to create frontend.
+    VhostUserCreateFrontend(VhostError),
     /// Failed to open vhost device.
     VhostUserOpen(VhostError),
     /// Connection to socket failed.
@@ -92,10 +92,10 @@ pub enum Error {
     VhostIrqRead(io::Error),
     /// Failed to read vhost eventfd.
     VhostUserMemoryRegion(MmapError),
-    /// Failed to create the master request handler from slave.
-    MasterReqHandlerCreation(vhost::vhost_user::Error),
-    /// Set slave request fd failed.
-    VhostUserSetSlaveRequestFd(vhost::Error),
+    /// Failed to create the frontend request handler from backend.
+    FrontendReqHandlerCreation(vhost::vhost_user::Error),
+    /// Set backend request fd failed.
+    VhostUserSetBackendRequestFd(vhost::Error),
     /// Add memory region failed.
     VhostUserAddMemReg(VhostError),
     /// Failed getting the configuration.
@@ -142,7 +142,7 @@ pub const DEFAULT_VIRTIO_FEATURES: u64 = 1 << VIRTIO_F_RING_INDIRECT_DESC
     | VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits();
 
 const HUP_CONNECTION_EVENT: u16 = EPOLL_HELPER_EVENT_LAST + 1;
-const SLAVE_REQ_EVENT: u16 = EPOLL_HELPER_EVENT_LAST + 2;
+const BACKEND_REQ_EVENT: u16 = EPOLL_HELPER_EVENT_LAST + 2;
 
 #[derive(Default)]
 pub struct Inflight {
@@ -150,7 +150,7 @@ pub struct Inflight {
     pub fd: Option<std::fs::File>,
 }
 
-pub struct VhostUserEpollHandler<S: VhostUserMasterReqHandler> {
+pub struct VhostUserEpollHandler<S: VhostUserFrontendReqHandler> {
     pub vu: Arc<Mutex<VhostUserHandle>>,
     pub mem: GuestMemoryAtomic<GuestMemoryMmap>,
     pub kill_evt: EventFd,
@@ -161,11 +161,11 @@ pub struct VhostUserEpollHandler<S: VhostUserMasterReqHandler> {
     pub acked_protocol_features: u64,
     pub socket_path: String,
     pub server: bool,
-    pub slave_req_handler: Option<MasterReqHandler<S>>,
+    pub backend_req_handler: Option<FrontendReqHandler<S>>,
     pub inflight: Option<Inflight>,
 }
 
-impl<S: VhostUserMasterReqHandler> VhostUserEpollHandler<S> {
+impl<S: VhostUserFrontendReqHandler> VhostUserEpollHandler<S> {
     pub fn run(
         &mut self,
         paused: Arc<AtomicBool>,
@@ -178,8 +178,8 @@ impl<S: VhostUserMasterReqHandler> VhostUserEpollHandler<S> {
             epoll::Events::EPOLLHUP,
         )?;
 
-        if let Some(slave_req_handler) = &self.slave_req_handler {
-            helper.add_event(slave_req_handler.as_raw_fd(), SLAVE_REQ_EVENT)?;
+        if let Some(backend_req_handler) = &self.backend_req_handler {
+            helper.add_event(backend_req_handler.as_raw_fd(), BACKEND_REQ_EVENT)?;
         }
 
         helper.run(paused, paused_sync, self)?;
@@ -218,7 +218,7 @@ impl<S: VhostUserMasterReqHandler> VhostUserEpollHandler<S> {
                 &self.virtio_interrupt,
                 self.acked_features,
                 self.acked_protocol_features,
-                &self.slave_req_handler,
+                &self.backend_req_handler,
                 self.inflight.as_mut(),
             )
             .map_err(|e| {
@@ -242,7 +242,7 @@ impl<S: VhostUserMasterReqHandler> VhostUserEpollHandler<S> {
     }
 }
 
-impl<S: VhostUserMasterReqHandler> EpollHelperHandler for VhostUserEpollHandler<S> {
+impl<S: VhostUserFrontendReqHandler> EpollHelperHandler for VhostUserEpollHandler<S> {
     fn handle_event(&mut self, helper: &mut EpollHelper, event: &epoll::Event) -> bool {
         let ev_type = event.data as u16;
         match ev_type {
@@ -252,9 +252,9 @@ impl<S: VhostUserMasterReqHandler> EpollHelperHandler for VhostUserEpollHandler<
                     return true;
                 }
             }
-            SLAVE_REQ_EVENT => {
-                if let Some(slave_req_handler) = self.slave_req_handler.as_mut() {
-                    if let Err(e) = slave_req_handler.handle_request() {
+            BACKEND_REQ_EVENT => {
+                if let Some(backend_req_handler) = self.backend_req_handler.as_mut() {
+                    if let Err(e) = backend_req_handler.handle_request() {
                         error!("Failed to handle request from vhost-user backend: {:?}", e);
                         return true;
                     }
@@ -282,13 +282,13 @@ pub struct VhostUserCommon {
 
 impl VhostUserCommon {
     #[allow(clippy::too_many_arguments)]
-    pub fn activate<T: VhostUserMasterReqHandler>(
+    pub fn activate<T: VhostUserFrontendReqHandler>(
         &mut self,
         mem: GuestMemoryAtomic<GuestMemoryMmap>,
         queues: Vec<(usize, Queue, EventFd)>,
         interrupt_cb: Arc<dyn VirtioInterrupt>,
         acked_features: u64,
-        slave_req_handler: Option<MasterReqHandler<T>>,
+        backend_req_handler: Option<FrontendReqHandler<T>>,
         kill_evt: EventFd,
         pause_evt: EventFd,
     ) -> std::result::Result<VhostUserEpollHandler<T>, ActivateError> {
@@ -316,7 +316,7 @@ impl VhostUserCommon {
                 &interrupt_cb,
                 acked_features,
                 self.acked_protocol_features,
-                &slave_req_handler,
+                &backend_req_handler,
                 inflight.as_mut(),
             )
             .map_err(ActivateError::VhostUserBlkSetup)?;
@@ -332,7 +332,7 @@ impl VhostUserCommon {
             acked_protocol_features: self.acked_protocol_features,
             socket_path: self.socket_path.clone(),
             server: self.server,
-            slave_req_handler,
+            backend_req_handler,
             inflight,
         })
     }
@@ -366,7 +366,7 @@ impl VhostUserCommon {
     pub fn add_memory_region(
         &mut self,
         guest_memory: &Option<GuestMemoryAtomic<GuestMemoryMmap>>,
-        region: &Arc<GuestRegionMmap>,
+        region: &GuestRegionMmap,
     ) -> std::result::Result<(), Error> {
         if let Some(vu) = &self.vu {
             if self.acked_protocol_features & VhostUserProtocolFeatures::CONFIGURE_MEM_SLOTS.bits()

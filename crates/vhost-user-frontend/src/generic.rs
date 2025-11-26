@@ -11,7 +11,7 @@ use std::vec::Vec;
 use vhost::vhost_user::message::{
     VhostUserConfigFlags, VhostUserProtocolFeatures, VhostUserVirtioFeatures,
 };
-use vhost::vhost_user::{MasterReqHandler, VhostUserMaster, VhostUserMasterReqHandler};
+use vhost::vhost_user::{FrontendReqHandler, VhostUserFrontend, VhostUserFrontendReqHandler};
 use virtio_queue::Queue;
 use vm_memory::GuestMemoryAtomic;
 use vmm_sys_util::eventfd::EventFd;
@@ -31,8 +31,8 @@ pub struct State {
     pub vu_num_queues: usize,
 }
 
-struct SlaveReqHandler {}
-impl VhostUserMasterReqHandler for SlaveReqHandler {}
+struct BackendReqHandler {}
+impl VhostUserFrontendReqHandler for BackendReqHandler {}
 
 pub struct Generic {
     common: VirtioCommon,
@@ -230,7 +230,7 @@ impl VirtioDevice for Generic {
         self.common.activate(&queues, &interrupt)?;
         self.guest_memory = Some(mem.clone());
 
-        let slave_req_handler: Option<MasterReqHandler<SlaveReqHandler>> = None;
+        let backend_req_handler: Option<FrontendReqHandler<BackendReqHandler>> = None;
 
         // Run a dedicated thread for handling potential reconnections with
         // the backend.
@@ -241,7 +241,7 @@ impl VirtioDevice for Generic {
             queues,
             interrupt,
             self.common.acked_features,
-            slave_req_handler,
+            backend_req_handler,
             kill_evt,
             pause_evt,
         )?;
@@ -291,7 +291,7 @@ impl VirtioDevice for Generic {
 
     fn add_memory_region(
         &mut self,
-        region: &Arc<GuestRegionMmap>,
+        region: &GuestRegionMmap,
     ) -> std::result::Result<(), Error> {
         self.vu_common.add_memory_region(&self.guest_memory, region)
     }
