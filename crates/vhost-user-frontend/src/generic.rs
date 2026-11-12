@@ -281,8 +281,9 @@ impl VirtioDevice for Generic {
             let _ = kill_evt.write(1);
         }
 
-        // Return the interrupt
-        Some(self.common.interrupt_cb.take().unwrap())
+        // Return the interrupt, which is None for a device that was never activated
+        // (the guest never wrote DRIVER_OK)
+        self.common.interrupt_cb.take()
     }
 
     fn shutdown(&mut self) {
