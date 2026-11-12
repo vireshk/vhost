@@ -288,8 +288,8 @@ impl VirtioCommon {
             }
         }
 
-        // Return the interrupt
-        Some(self.interrupt_cb.take().unwrap())
+        // Return the interrupt, which is None for a device that was never activated
+        self.interrupt_cb.take()
     }
 
     pub fn dup_eventfds(&self) -> (EventFd, EventFd) {
